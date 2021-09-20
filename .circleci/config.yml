@@ -1,0 +1,275 @@
+version: 2.1
+
+parameters:
+  enable_sentry:
+    type: boolean
+    default: false
+
+orbs:
+  aws-cli: circleci/aws-cli@2.0.0
+  aws-ecr: circleci/aws-ecr@6.15
+  aws-eb: circleci/aws-elastic-beanstalk@1.0.2
+  aws-ecs: circleci/aws-ecs@2.2.0
+  skip: theodo/skip@0.0.4
+  sentry:
+    commands:
+      install:
+        parameters:
+          enable_sentry:
+            type: boolean
+            default: true
+        steps:
+          - when:
+              condition: << parameters.enable_sentry >>
+              steps:
+                - run:
+                    name: Install Sentry
+                    command: |
+                      curl -sL https://sentry.io/get-cli/ | bash
+                      sentry-cli --help
+
+      parse_version:
+        parameters:
+          enable_sentry:
+            type: boolean
+            default: true
+          version:
+            type: string
+            default: ''
+          version_raw:
+            type: string
+            default: ''
+        steps:
+          - when:
+              condition: << parameters.enable_sentry >>
+              steps:
+                - when:
+                    condition: << parameters.version >>
+                    steps:
+                      - run:
+                          command: export VERSION=${<< parameters.version >>}
+                - when:
+                    condition: << parameters.version_raw >>
+                    steps:
+                      - run:
+                          command: export VERSION=<< parameters.version_raw >>
+
+      start_build:
+        parameters:
+          enable_sentry:
+            type: boolean
+            default: true
+          version:
+            type: string
+            default: ''
+          version_raw:
+            type: string
+            default: ''
+        steps:
+          - when:
+              condition: << parameters.enable_sentry >>
+              steps:
+                - parse_version:
+                    version: << parameters.version >>
+                    version_raw: << parameters.version_raw >>
+                - run:
+                    name: "Sentry: start build"
+                    command: |
+                      sentry-cli releases new $VERSION
+                      sentry-cli releases set-commits $VERSION --auto
+
+      finish_build:
+        parameters:
+          enable_sentry:
+            type: boolean
+            default: true
+          version:
+            type: string
+            default: ''
+          version_raw:
+            type: string
+            default: ''
+        steps:
+          - when:
+              condition: << parameters.enable_sentry >>
+              steps:
+                - parse_version:
+                    version: << parameters.version >>
+                    version_raw: << parameters.version_raw >>
+                - run:
+                    name: "Sentry: finish build"
+                    command: |
+                      sentry-cli releases finalize $VERSION
+
+      deploy:
+        parameters:
+          enable_sentry:
+            type: boolean
+            default: true
+          version:
+            type: string
+            default: ''
+          version_raw:
+            type: string
+            default: ''
+          environment:
+            type: string
+        steps:
+          - when:
+              condition: << parameters.enable_sentry >>
+              steps:
+                - parse_version:
+                    version: << parameters.version >>
+                    version_raw: << parameters.version_raw >>
+                - run:
+                    name: "Sentry: deploy"
+                    command: |
+                      sentry-cli releases deploys $VERSION< new -e << parameters.environment >>
+
+executors:
+  defaults_typescript:
+    docker:
+      - image: circleci/node:12.13
+      - image: circleci/postgres:9.6-alpine-ram
+        environment:
+          POSTGRES_DB: seed
+          POSTGRES_USER: seed
+          POSTGRES_PASSWORD: Ge0rgesMoustaki
+          PGPORT: 5434
+
+commands:
+  checkout_merge:
+    parameters:
+      base_branch:
+        type: string
+        default: origin/main
+    steps:
+      - checkout
+      - run:
+          name: "Check for conflicts and merge main branch"
+          command: |
+            git config user.email "circleci@circleci"
+            git config user.name "CircleCI"
+            git merge << parameters.base_branch >> --no-ff
+
+  yarn-install:
+    parameters:
+      workspace:
+        type: string
+    steps:
+      - checkout_merge
+      - skip/skip_unchanged:
+          paths: << parameters.workspace >>
+          git_base_branch: origin/main
+      - attach_workspace:
+          at: ~/cheerUp/<< parameters.workspace >>
+      - restore_cache:
+          key: node-modules-cache-{{ checksum "<< parameters.workspace >>/yarn.lock" }}
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Install front dependencies
+          command: yarn
+      - save_cache:
+          key: node-modules-cache-{{ checksum "<< parameters.workspace >>/yarn.lock" }}
+          paths:
+            - << parameters.workspace >>/node_modules
+      - persist_to_workspace:
+          root: ~/cheerUp/<< parameters.workspace >>
+          paths:
+            - node_modules
+            - .env
+
+  yarn-tests:
+    parameters:
+      workspace:
+        type: string
+    steps:
+      - checkout_merge
+      - skip/skip_unchanged:
+          paths: << parameters.workspace >>
+          git_base_branch: origin/main
+      - attach_workspace:
+          at: ~/cheerUp/<< parameters.workspace >>
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Unit test with coverage
+          command: yarn test:coverage
+      - store_artifacts:
+          path: << parameters.workspace >>/coverage
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Run Typescript checker
+          command: yarn tsc
+
+  yarn-linter:
+    parameters:
+      workspace:
+        type: string
+    steps:
+      - checkout_merge
+      - skip/skip_unchanged:
+          paths: << parameters.workspace >>
+          git_base_branch: origin/main
+      - attach_workspace:
+          at: ~/cheerUp/<< parameters.workspace >>
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Run linter
+          command: yarn lint
+      - store_artifacts:
+          path: << parameters.workspace >>/coverage
+
+  yarn-audit:
+    parameters:
+      workspace:
+        type: string
+    steps:
+      - checkout_merge
+      # yarn-audit is started with a cron.
+      # As such we cannot get the frontend dependencies from the workspace like we do with the other jobs. We need to re-install them.
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Install front dependencies
+          command: yarn
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Check dependencies
+          command: yarn audit-dependencies
+
+jobs:
+  yarn-install-back:
+    executor: defaults_typescript
+    working_directory: ~/cheerUp
+    steps:
+      - yarn-install:
+          workspace: backend
+
+  node-tests:
+    executor: defaults_typescript
+    working_directory: ~/cheerUp
+    environment:
+      NODE_ENV: test
+    steps:
+      - yarn-tests:
+          workspace: backend
+
+  node-linter:
+    executor: defaults_typescript
+    working_directory: ~/cheerUp
+    environment:
+      NODE_ENV: prod
+    steps:
+      - yarn-linter:
+          workspace: backend
+
+workflows:
+  version: 2
+  stack:
+    jobs:
+      - yarn-install-back
+      - node-tests:
+          requires:
+            - yarn-install-back
+      - node-linter:
+          requires:
+            - yarn-install-back
