@@ -1,8 +1,3 @@
-// Keep this first to load env variables before importing any files
-// eslint-disable-next-line import/order
-import dotenv from './dotenv';
-dotenv.config({ allowEmptyValues: ['ALLOWED_HOST'] });
-
 import { CrudConfigService } from '@nestjsx/crud';
 
 // This workaround makes all crud routes blacklisted by default.

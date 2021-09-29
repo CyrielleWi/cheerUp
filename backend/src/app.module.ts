@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ConfigModule } from '@nestjs/config';
 
 import { AuthModule } from 'auth/auth.module';
 import { APP_FILTER, APP_PIPE } from '@nestjs/core';
@@ -10,9 +11,16 @@ import { LoggerModule } from './modules/logger/logger.module';
 import { LoggerMiddleware } from './modules/logger/logger.middleware';
 import { QueryFailedFilter } from './exception/query-failed.filter';
 import { EntityNotFoundFilter } from './exception/entity-not-found.filter';
+import { validate } from './env.validation';
 
 @Module({
-  imports: [TypeOrmModule.forRoot(), UserModule, AuthModule, LoggerModule],
+  imports: [
+    TypeOrmModule.forRoot(),
+    UserModule,
+    AuthModule,
+    LoggerModule,
+    ConfigModule.forRoot({ validate, isGlobal: true, ignoreEnvFile: true }),
+  ],
   controllers: [AppController],
   providers: [
     AppService,
