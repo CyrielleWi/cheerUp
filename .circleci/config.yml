@@ -5,132 +5,11 @@ parameters:
     type: boolean
     default: false
 
-orbs:
-  aws-cli: circleci/aws-cli@2.0.0
-  aws-ecr: circleci/aws-ecr@6.15
-  aws-eb: circleci/aws-elastic-beanstalk@1.0.2
-  aws-ecs: circleci/aws-ecs@2.2.0
-  skip: theodo/skip@0.0.4
-  sentry:
-    commands:
-      install:
-        parameters:
-          enable_sentry:
-            type: boolean
-            default: true
-        steps:
-          - when:
-              condition: << parameters.enable_sentry >>
-              steps:
-                - run:
-                    name: Install Sentry
-                    command: |
-                      curl -sL https://sentry.io/get-cli/ | bash
-                      sentry-cli --help
-
-      parse_version:
-        parameters:
-          enable_sentry:
-            type: boolean
-            default: true
-          version:
-            type: string
-            default: ''
-          version_raw:
-            type: string
-            default: ''
-        steps:
-          - when:
-              condition: << parameters.enable_sentry >>
-              steps:
-                - when:
-                    condition: << parameters.version >>
-                    steps:
-                      - run:
-                          command: export VERSION=${<< parameters.version >>}
-                - when:
-                    condition: << parameters.version_raw >>
-                    steps:
-                      - run:
-                          command: export VERSION=<< parameters.version_raw >>
-
-      start_build:
-        parameters:
-          enable_sentry:
-            type: boolean
-            default: true
-          version:
-            type: string
-            default: ''
-          version_raw:
-            type: string
-            default: ''
-        steps:
-          - when:
-              condition: << parameters.enable_sentry >>
-              steps:
-                - parse_version:
-                    version: << parameters.version >>
-                    version_raw: << parameters.version_raw >>
-                - run:
-                    name: "Sentry: start build"
-                    command: |
-                      sentry-cli releases new $VERSION
-                      sentry-cli releases set-commits $VERSION --auto
-
-      finish_build:
-        parameters:
-          enable_sentry:
-            type: boolean
-            default: true
-          version:
-            type: string
-            default: ''
-          version_raw:
-            type: string
-            default: ''
-        steps:
-          - when:
-              condition: << parameters.enable_sentry >>
-              steps:
-                - parse_version:
-                    version: << parameters.version >>
-                    version_raw: << parameters.version_raw >>
-                - run:
-                    name: "Sentry: finish build"
-                    command: |
-                      sentry-cli releases finalize $VERSION
-
-      deploy:
-        parameters:
-          enable_sentry:
-            type: boolean
-            default: true
-          version:
-            type: string
-            default: ''
-          version_raw:
-            type: string
-            default: ''
-          environment:
-            type: string
-        steps:
-          - when:
-              condition: << parameters.enable_sentry >>
-              steps:
-                - parse_version:
-                    version: << parameters.version >>
-                    version_raw: << parameters.version_raw >>
-                - run:
-                    name: "Sentry: deploy"
-                    command: |
-                      sentry-cli releases deploys $VERSION< new -e << parameters.environment >>
-
 executors:
   defaults_typescript:
     docker:
-      - image: circleci/node:12.13
-      - image: circleci/postgres:9.6-alpine-ram
+      - image: circleci/node:14.17
+      - image: circleci/postgres:10.6-alpine-ram
         environment:
           POSTGRES_DB: seed
           POSTGRES_USER: seed
@@ -138,6 +17,50 @@ executors:
           PGPORT: 5434
 
 commands:
+  #  From orb theodo/skip https://circleci.com/developer/orbs/orb/theodo/skip
+  skip_unchanged:
+    parameters:
+      except_branches:
+        default: master,main,production
+        description: Comma-separated list of git branches where we should never skip tests.
+        type: string
+      git_base_branch:
+        default: origin/main
+        description: The branch to compare against when looking for changing.
+        type: string
+      paths:
+        description: The paths to look for changes in.
+        type: string
+    steps:
+      - run:
+          command: |
+              echo "Skip debugging"
+              echo "--------------"
+              echo "GIT_BASE_BRANCH=$GIT_BASE_BRANCH"
+              echo "PATHS=$PATHS"
+              echo "EXCEPT_BRANCHES=$EXCEPT_BRANCHES"
+
+              BRANCH_NAME="$(git rev-parse --abbrev-ref HEAD)"
+              echo "BRANCH_NAME=$BRANCH_NAME"
+
+              IFS=' ' read -ra paths_arr \<<< "$PATHS"
+              echo "paths_arr=" "${paths_arr[@]}"
+
+              CHANGED_FILES="$(git diff "$GIT_BASE_BRANCH"..."$(git symbolic-ref --short -q HEAD)" --name-only --diff-filter=ACMRT "${paths_arr[@]}")";
+              echo "CHANGED_FILES=$CHANGED_FILES"
+
+              if [[ "$EXCEPT_BRANCHES" == *"${BRANCH_NAME}"* ]] || [ -n "${CHANGED_FILES}" ];
+              then
+                  exit 0;
+              fi
+              circleci step halt;
+
+          environment:
+            EXCEPT_BRANCHES: << parameters.except_branches >>
+            GIT_BASE_BRANCH: << parameters.git_base_branch >>
+            PATHS: << parameters.paths >>
+          name: Skip if no changes to "<< parameters.paths >>"
+
   checkout_merge:
     parameters:
       base_branch:
@@ -158,7 +81,7 @@ commands:
         type: string
     steps:
       - checkout_merge
-      - skip/skip_unchanged:
+      - skip_unchanged:
           paths: << parameters.workspace >>
           git_base_branch: origin/main
       - attach_workspace:
@@ -185,7 +108,7 @@ commands:
         type: string
     steps:
       - checkout_merge
-      - skip/skip_unchanged:
+      - skip_unchanged:
           paths: << parameters.workspace >>
           git_base_branch: origin/main
       - attach_workspace:
@@ -207,7 +130,7 @@ commands:
         type: string
     steps:
       - checkout_merge
-      - skip/skip_unchanged:
+      - skip_unchanged:
           paths: << parameters.workspace >>
           git_base_branch: origin/main
       - attach_workspace:
