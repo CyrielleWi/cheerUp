@@ -171,6 +171,9 @@ commands:
       - attach_workspace:
           at: ~/cheerUp/<< parameters.workspace >>
       - run:
+          name: See heroku api key
+          command: echo $HEROKU_API_KEY
+      - run:
           working_directory: << parameters.workspace >>
           name: Install dependencies
           command: yarn
