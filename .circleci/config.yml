@@ -172,6 +172,10 @@ commands:
           at: ~/cheerUp/<< parameters.workspace >>
       - run:
           working_directory: << parameters.workspace >>
+          name: Install dependencies
+          command: yarn
+      - run:
+          working_directory: << parameters.workspace >>
           name: Build
           command: yarn build
 
@@ -222,7 +226,6 @@ workflows:
 
   heroku_deploy:
     jobs:
-      - yarn-install-back
       - build
       - heroku/deploy-via-git:
           requires:
