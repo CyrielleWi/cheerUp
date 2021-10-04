@@ -234,9 +234,6 @@ workflows:
             branches:
               only: main
       - heroku/deploy-via-git:
-          app-name: cheer-up
+          app-name: cheer-up-app
           requires:
             - build
-          filters:
-            branches:
-              only: main
