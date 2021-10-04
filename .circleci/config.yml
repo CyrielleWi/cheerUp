@@ -5,6 +5,9 @@ parameters:
     type: boolean
     default: false
 
+orbs:
+  heroku: circleci/heroku@1.2.6
+
 executors:
   defaults_typescript:
     docker:
@@ -159,6 +162,19 @@ commands:
           name: Check dependencies
           command: yarn audit-dependencies
 
+  yarn-build:
+    parameters:
+      workspace:
+        type: string
+    steps:
+      - checkout_merge
+      - attach_workspace:
+          at: ~/cheerUp/<< parameters.workspace >>
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Build
+          command: yarn build
+
 jobs:
   yarn-install-back:
     executor: defaults_typescript
@@ -185,6 +201,13 @@ jobs:
       - yarn-linter:
           workspace: backend
 
+  build:
+    executor: defaults_typescript
+    working_directory: ~/cheerUp
+    steps:
+      - yarn-build:
+          workspace: backend
+
 workflows:
   version: 2
   stack:
@@ -196,3 +219,14 @@ workflows:
       - node-linter:
           requires:
             - yarn-install-back
+
+  heroku_deploy:
+    jobs:
+      - yarn-install-back
+      - build
+      - heroku/deploy-via-git:
+          requires:
+            - build
+          filters:
+            branches:
+              only: master
