@@ -171,9 +171,6 @@ commands:
       - attach_workspace:
           at: ~/cheerUp/<< parameters.workspace >>
       - run:
-          name: See heroku api key
-          command: echo $HEROKU_API_KEY
-      - run:
           working_directory: << parameters.workspace >>
           name: Install dependencies
           command: yarn
@@ -208,12 +205,20 @@ jobs:
       - yarn-linter:
           workspace: backend
 
-  build:
+  yarn-build-back:
     executor: defaults_typescript
     working_directory: ~/cheerUp
     steps:
       - yarn-build:
           workspace: backend
+
+  heroku-deploy:
+    executor: heroku/default
+    steps:
+      - checkout_merge
+      - heroku/install
+      - heroku/push-docker-image
+      - heroku/release-docker-image
 
 workflows:
   version: 2
@@ -229,14 +234,7 @@ workflows:
 
   heroku_deploy:
     jobs:
-      - build:
-          filters:
-            branches:
-              only: main
-      - heroku/deploy-via-git:
-          app-name: cheer-up
+      - yarn-build-back
+      - heroku-deploy:
           requires:
-            - build
-          filters:
-            branches:
-              only: main
+            - yarn-build-back
