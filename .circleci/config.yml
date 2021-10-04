@@ -228,8 +228,9 @@ workflows:
     jobs:
       - build
       - heroku/deploy-via-git:
+          app-name: cheer-up
           requires:
             - build
           filters:
             branches:
-              only: master
+              only: main
