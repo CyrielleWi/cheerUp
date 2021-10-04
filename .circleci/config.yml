@@ -226,7 +226,7 @@ workflows:
 
   heroku_deploy:
     jobs:
-      - build
+      - build:
           filters:
             branches:
               only: main
