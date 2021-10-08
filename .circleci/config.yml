@@ -170,9 +170,8 @@ commands:
       - checkout_merge
       - attach_workspace:
           at: ~/cheerUp/<< parameters.workspace >>
-      - run:
-          name: See heroku api key
-          command: echo $HEROKU_API_KEY
+      - setup_remote_docker:
+          docker_layer_caching: true
       - run:
           working_directory: << parameters.workspace >>
           name: Install dependencies
@@ -181,6 +180,36 @@ commands:
           working_directory: << parameters.workspace >>
           name: Build
           command: yarn build
+
+  heroku-push:
+    parameters:
+      app:
+        type: string
+      workspace:
+        type: string
+    steps:
+      - attach_workspace:
+          at: ~/cheerUp/<< parameters.workspace >>
+      - setup_remote_docker:
+          docker_layer_caching: true
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Login to Heroku
+          command: heroku container:login
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Install dependencies
+          command: yarn
+      - run:
+          working_directory: << parameters.workspace >>
+          name: Build
+          command: yarn build
+      - run:
+          name: Push container to Heroku
+          command: heroku container:push web -a << parameters.app >>
+      - run:
+          name: Release container to Heroku
+          command: heroku container:release web -a << parameters.app >>
 
 jobs:
   yarn-install-back:
@@ -208,11 +237,23 @@ jobs:
       - yarn-linter:
           workspace: backend
 
-  build:
-    executor: defaults_typescript
+  yarn-build-back:
     working_directory: ~/cheerUp
+    docker:
+      - image: circleci/node:14.17
     steps:
       - yarn-build:
+          workspace: backend
+
+  heroku-deploy:
+    working_directory: ~/cheerUp
+    docker:
+      - image: circleci/node:14.17
+    steps:
+      - checkout_merge
+      - heroku/install
+      - heroku-push:
+          app: cheer-up-app
           workspace: backend
 
 workflows:
@@ -229,11 +270,7 @@ workflows:
 
   heroku_deploy:
     jobs:
-      - build:
+      - heroku-deploy:
           filters:
             branches:
               only: main
-      - heroku/deploy-via-git:
-          app-name: cheer-up-app
-          requires:
-            - build
